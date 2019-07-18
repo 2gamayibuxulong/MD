@@ -1006,3 +1006,315 @@ spring:
         - After=2018-01-20T06:06:06+08:00[Asia/Shanghai]
 ```
 
+
+
+### 5.2  服务网关注册到注册中心
+
+依赖：
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+</dependency>
+```
+
+配置：
+
+```yml
+server:
+  port: 8888
+spring:
+  application:
+    name: cloud-gateway-eureka
+  cloud:
+    gateway:
+     discovery:
+        locator:
+         enabled: true
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8000/eureka/
+logging:
+  level:
+    org.springframework.cloud.gateway: debug
+```
+
+- `spring.cloud.gateway.discovery.locator.enabled`：是否与服务注册于发现组件进行结合，通过 serviceId 转发到具体的服务实例。默认为 false，设为 true 便开启通过服务中心的自动根据 serviceId 创建路由的功能。
+- `eureka.client.service-url.defaultZone`指定注册中心的地址，以便使用服务发现功能
+- `logging.level.org.springframework.cloud.gateway` 调整相 gateway 包的 log 级别，以便排查问题
+
+
+
+测试：
+
+​		将 Spring Cloud Gateway 注册到服务中心之后，网关会自动代理所有的在注册中心的服务，访问这些服务的语法为：
+
+```yml
+http://网关地址：端口/服务中心注册 serviceId/具体的url
+```
+
+
+
+### 5.3  修改请求路径的过滤器
+
+#### **5.3.1  StripPrefix Filter**
+
+​		StripPrefix Filter 是一个请求路径截取的功能，我们可以利用这个功能来做特殊业务的转发。
+
+配置：
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: nameRoot
+        uri: http://nameservice
+        predicates:
+        - Path=/name/**
+        filters:
+        - StripPrefix=2
+```
+
+​		当请求路径匹配到`/name/**`会将包含name和后边的字符串接去掉转发， `StripPrefix=2`就代表截取路径的个数，这样配置后当请求`/name/bar/foo`后端匹配到的请求路径就会变成`http://nameservice/foo`。
+
+
+
+​		PrefixPath Filter 的作用和 StripPrefix 正相反，是在 URL 路径前面添加一部分的前缀
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: prefixpath_route
+        uri: http://example.org
+        filters:
+        - PrefixPath=/mypath
+```
+
+
+
+#### 5.3.2  限速路由器
+
+​		限速在高并发场景中比较常用的手段之一，可以有效的保障服务的整体稳定性，Spring Cloud Gateway 提供了基于 Redis 的限流方案
+
+依赖：
+
+```yml
+<dependency>
+  <groupId>org.springframework.cloud</groupId>
+  <artifactId>spring-boot-starter-data-redis-reactive</artifactId>
+</dependency>
+```
+
+配置：
+
+```yml
+spring:
+  application:
+    name: cloud-gateway-eureka
+  redis:
+    host: localhost
+    password:
+    port: 6379
+  cloud:
+    gateway:
+     discovery:
+        locator:
+         enabled: true
+     routes:
+     - id: requestratelimiter_route
+       uri: http://example.org
+       filters:
+       - name: RequestRateLimiter
+         args:
+           redis-rate-limiter.replenishRate: 10
+           redis-rate-limiter.burstCapacity: 20
+           key-resolver: "#{@userKeyResolver}"
+       predicates:
+         - Method=GET
+```
+
+- filter 名称必须是 RequestRateLimiter
+- redis-rate-limiter.replenishRate：允许用户每秒处理多少个请求
+- redis-rate-limiter.burstCapacity：令牌桶的容量，允许在一秒钟内完成的最大请求数
+- key-resolver：使用 SpEL 按名称引用 bean
+
+项目中设置限流的策略，创建 Config 类。
+
+```java
+public class Config {
+
+    @Bean
+    KeyResolver userKeyResolver() {
+        return exchange -> 		            Mono.just(exchange.getRequest().getQueryParams().getFirst("user"));
+    }
+}
+```
+
+根据请求参数中的 user 字段来限流，也可以设置根据请求 IP 地址来限流，设置如下:
+
+```java
+@Bean
+public KeyResolver ipKeyResolver() {
+    return exchange -> Mono.just(exchange.getRequest().getRemoteAddress().getHostName());
+}
+```
+
+
+
+#### 5.3.3  熔断路由器
+
+依赖：
+
+```xml
+<dependency>
+  <groupId>org.springframework.cloud</groupId>
+  <artifactId>spring-cloud-starter-netflix-hystrix</artifactId>
+</dependency>
+```
+
+配置：
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: hystrix_route
+        uri: http://example.org
+        filters:
+        - Hystrix=myCommandName
+```
+
+​		配置后，gateway 将使用 myCommandName 作为名称生成 HystrixCommand 对象来进行熔断管理。如果想添加熔断后的回调内容，需要在添加一些配置。
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: hystrix_route
+        uri: lb://spring-cloud-producer
+        predicates:
+        - Path=/consumingserviceendpoint
+        filters:
+        - name: Hystrix
+          args:
+            name: fallbackcmd
+            fallbackUri: forward:/incaseoffailureusethis
+```
+
+`				fallbackUri: forward:/incaseoffailureusethis`配置了 fallback 时要会调的路径，当调用 Hystrix 的 fallback 被调用时，请求将转发到`/incaseoffailureuset`这个 URI。
+
+
+
+#### 5.3.4  重试路由器
+
+RetryGatewayFilter 是 Spring Cloud Gateway 对请求重试提供的一个 GatewayFilter Factory
+
+配置：
+
+```yml
+spring:
+  cloud:
+    gateway:
+      routes:
+      - id: retry_test
+        uri: lb://spring-cloud-producer
+        predicates:
+        - Path=/retry
+        filters:
+        - name: Retry
+          args:
+            retries: 3
+            statuses: BAD_GATEWAY
+```
+
+Retry GatewayFilter 通过这四个参数来控制重试机制： retries, statuses, methods, 和 series。
+
+- retries：重试次数，默认值是 3 次
+- statuses：HTTP 的状态返回码，取值请参考：`org.springframework.http.HttpStatus`
+- methods：指定哪些方法的请求需要进行重试逻辑，默认值是 GET 方法，取值参考：`org.springframework.http.HttpMethod`
+- series：一些列的状态码配置，取值参考：`org.springframework.http.HttpStatus.Series`。符合的某段状态码才会进行重试逻辑，默认值是 SERVER_ERROR，值是 5，也就是 5XX(5 开头的状态码)，共有5 个值。
+
+
+
+
+
+
+
+
+
+### 5.4  基于 Filter(过滤器) 实现的高级功能
+
+Spring Cloud Gateway 的 Filter 的生命周期不像 Zuul 的那么丰富，它只有两个：“pre” 和 “post”。
+
+- **PRE**： 这种过滤器在请求被路由之前调用。我们可利用这种过滤器实现身份验证、在集群中选择请求的微服务、记录调试信息等。
+- **POST**：这种过滤器在路由到微服务以后执行。这种过滤器可用来为响应添加标准的 HTTP Header、收集统计信息和指标、将响应从微服务发送给客户端等。
+
+​        Spring Cloud Gateway 的 Filter 分为两种：GatewayFilter 与 GlobalFilter。GlobalFilter 会应用到所有的路由上，而 GatewayFilter 将应用到单个路由或者一个分组的路由上。利用 GatewayFilter 可以修改请求的 Http 的请求或者响应，或者根据请求或者响应做一些特殊的限制。
+
+#### 5.4.1  快速上手 Filter 使用
+
+注册中心 cloud-gateway-eureka配置：
+
+```yml
+routes:
+	- id: add_request_parameter_route
+	uri: http://example.org
+	filters:
+	- AddRequestParameter=foo, bar
+```
+
+
+
+这样就会给匹配的每个请求添加上`foo=bar`的参数和值。
+
+```yml
+server:
+  port: 8888
+spring:
+  application:
+    name: cloud-gateway-eureka
+  cloud:
+    gateway:
+     discovery:
+        locator:
+         enabled: true
+     routes:
+     - id: add_request_parameter_route
+       uri: http://localhost:9000
+       filters:
+       - AddRequestParameter=foo, bar
+       predicates:
+         - Method=GET
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8000/eureka/
+logging:
+  level:
+    org.springframework.cloud.gateway: debug
+```
+
+这里的 routes 手动指定了服务的转发地址，设置所有的 GET 方法都会自动添加`foo=bar`
+
+
+
+#### 5.4.2  服务化路由转发
+
+​		我们使用 uri 指定了一个服务转发地址，单个服务这样使用问题不大，但是我们在注册中心往往会使用多个服务来共同支撑整个服务的使用，这个时候我们就期望可以将 Filter 作用到每个应用的实例上。
+
+将 cloud-gateway-eureka 项目配置文件中的 uri 内容修改如下：
+
+```yml
+#格式为：lb://应用注册服务名
+uri: lb://spring-cloud-producer
+```
+
+​	    这里其实默认使用了全局过滤器 LoadBalancerClient ，当路由配置中 uri 所用的协议为 lb 时（以uri: lb://spring-cloud-producer为例），gateway 将使用 LoadBalancerClient 把 spring-cloud-producer 通过 eureka 解析为实际的主机和端口，并进行负载均衡。
+
