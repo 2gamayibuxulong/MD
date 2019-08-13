@@ -1,5 +1,18 @@
 # SQL
 
+### TOP
+
+**SQL Server：**
+
+SELECT TOP *number*|*percent* *column_name(s)*
+FROM *table_name*;
+
+SELECT TOP 50 PERCENT * FROM Websites;
+
+
+
+
+
 ### 通配符
 
 | %                          | 替代一个或多个字符         |
@@ -8,7 +21,18 @@
 | [charlist]                 | 字符列中的任何单一字符     |
 | [^charlist]或者[!charlist] | 不在字符列中的任何单一字符 |
 
-### Inner join
+**MySQL**
+
+MySQL 中使用 **REGEXP** 或 **NOT REGEXP** 运算符 (或 RLIKE 和 NOT RLIKE) 来操作正则表达式。
+
+SELECT * FROM Websites
+WHERE name REGEXP '^[A-H]';
+
+![img](https://www.runoob.com/wp-content/uploads/2019/01/sql-join.png)
+
+
+
+### Inner JOIN
 
 在表中存在至少一个匹配时，INNER JOIN 关键字返回行。
 
@@ -23,6 +47,12 @@ LEFT JOIN 关键字会从左表 (table_name1) 那里返回所有的行，即使�
 ### RIGHT JOIN
 
 RIGHT JOIN 关键字会右表 (table_name2) 那里返回所有的行，即使在左表 (table_name1) 中没有匹配的行。
+
+
+
+
+
+
 
 
 
@@ -43,6 +73,27 @@ UNION 操作符用于合并两个或多个 SELECT 语句的结果集。
 ### UNION ALL
 
 UNION ALL 命令和 UNION 命令几乎是等效的，不过 UNION ALL 命令会列出所有的值。
+
+
+
+### SELECT INTO
+
+```sql
+SELECT column_name(s)
+INTO newtable 
+FROM table1;
+```
+
+
+
+###  INSERT INTO SELECT
+
+```sql
+INSERT INTO Websites (name, country)
+SELECT app_name, country FROM apps;
+```
+
+
 
 
 
@@ -74,6 +125,227 @@ CREATE TABLE 表名称
 
 
 
+### UNIQUE
+
+```sql
+CREATE TABLE Persons
+(
+    P_Id int NOT NULL UNIQUE,
+    LastName varchar(255) NOT NULL,
+    FirstName varchar(255),
+    Address varchar(255),
+    City varchar(255)
+)
+```
+
+多unique 创表：
+
+```sql
+CREATE TABLE Persons
+(
+	P_Id int NOT NULL,
+	LastName varchar(255) NOT NULL,
+	FirstName varchar(255),
+	Address varchar(255),
+	City varchar(255),
+	CONSTRAINT uc_PersonID UNIQUE (P_Id,LastName)
+)
+```
+
+已创表：
+
+```sql
+ALTER TABLE Persons
+ADD CONSTRAINT uc_PersonID UNIQUE (P_Id,LastName)
+```
+
+删除：
+
+```sql
+ALTER TABLE Persons
+DROP CONSTRAINT uc_PersonID
+```
+
+
+
+### PRIMARY KEY
+
+```SQL
+CREATE TABLE Persons
+(
+    P_Id int NOT NULL PRIMARY KEY,
+    LastName varchar(255) NOT NULL,
+    FirstName varchar(255),
+    Address varchar(255),
+    City varchar(255)
+)
+```
+
+多个：
+
+```sql
+CREATE TABLE Persons
+(
+    P_Id int NOT NULL,
+    LastName varchar(255) NOT NULL,
+    FirstName varchar(255),
+    Address varchar(255),
+    City varchar(255),
+    CONSTRAINT pk_PersonID PRIMARY KEY (P_Id,LastName)
+)
+```
+
+新增:
+
+```sql
+ALTER TABLE Persons
+ADD CONSTRAINT pk_PersonID PRIMARY KEY (P_Id,LastName)
+```
+
+删除：
+
+```sql
+ALTER TABLE Persons
+DROP CONSTRAINT pk_PersonID
+```
+
+
+
+### FOREIGN KEY 
+
+```sql
+CREATE TABLE Orders
+(
+    O_Id int NOT NULL PRIMARY KEY,
+    OrderNo int NOT NULL,
+    P_Id int FOREIGN KEY REFERENCES Persons(P_Id)
+)
+```
+
+多个：
+
+```sql
+CREATE TABLE Orders
+(
+    O_Id int NOT NULL,
+    OrderNo int NOT NULL,
+    P_Id int,
+    PRIMARY KEY (O_Id),
+    CONSTRAINT fk_PerOrders FOREIGN KEY (P_Id)
+    REFERENCES Persons(P_Id)
+)
+```
+
+已创建：
+
+```sql
+ALTER TABLE Orders
+ADD CONSTRAINT fk_PerOrders
+FOREIGN KEY (P_Id)
+REFERENCES Persons(P_Id)
+```
+
+删除：
+
+```sql
+ALTER TABLE Orders
+DROP CONSTRAINT fk_PerOrders
+```
+
+
+
+### CHECK
+
+```sql
+CREATE TABLE Persons
+(
+    P_Id int NOT NULL CHECK (P_Id>0),
+    LastName varchar(255) NOT NULL,
+    FirstName varchar(255),
+    Address varchar(255),
+    City varchar(255)
+)
+```
+
+多个：
+
+```sql
+CREATE TABLE Persons
+(
+    P_Id int NOT NULL,
+    LastName varchar(255) NOT NULL,
+    FirstName varchar(255),
+    Address varchar(255),
+    City varchar(255),
+    CONSTRAINT chk_Person CHECK (P_Id>0 AND City='Sandnes')
+)
+```
+
+修改：
+
+```sql
+ALTER TABLE Persons
+ADD CHECK (P_Id>0)
+```
+
+```sql
+ALTER TABLE Persons
+ADD CONSTRAINT chk_Person CHECK (P_Id>0 AND City='Sandnes')
+```
+
+删除：
+
+```sql
+ALTER TABLE Persons
+DROP CONSTRAINT chk_Person
+```
+
+
+
+### DEFAULT
+
+```SQL
+CREATE TABLE Persons
+(
+    P_Id int NOT NULL,
+    LastName varchar(255) NOT NULL,
+    FirstName varchar(255),
+    Address varchar(255),
+    City varchar(255) DEFAULT 'Sandnes'
+)
+```
+
+修改：
+
+```sql
+ALTER TABLE Persons
+ADD CONSTRAINT ab_c DEFAULT 'SANDNES' for City
+```
+
+删除：
+
+```sql
+ALTER TABLE Persons
+ALTER City DROP DEFAULT
+```
+
+
+
+### AUTO INCREMENT
+
+```sql
+CREATE TABLE Persons
+(
+    ID int IDENTITY(1,1) PRIMARY KEY,
+    LastName varchar(255) NOT NULL,
+    FirstName varchar(255),
+    Address varchar(255),
+    City varchar(255)
+)
+```
+
+
+
 ### SQL Server Date 函数
 
 | 函数                                                         | 描述                             |
@@ -83,6 +355,23 @@ CREATE TABLE 表名称
 | [DATEADD()](http://www.w3school.com.cn/sql/func_dateadd.asp) | 在日期中添加或减去指定的时间间隔 |
 | [DATEDIFF()](http://www.w3school.com.cn/sql/func_datediff.asp) | 返回两个日期之间的时间           |
 | [CONVERT()](http://www.w3school.com.cn/sql/func_convert.asp) | 用不同的格式显示日期/时间        |
+
+**SQL Server** 使用下列数据类型在数据库中存储日期或日期/时间值：
+
+- DATE - 格式：YYYY-MM-DD
+- DATETIME - 格式：YYYY-MM-DD HH:MM:SS
+- SMALLDATETIME - 格式：YYYY-MM-DD HH:MM:SS
+- TIMESTAMP - 格式：唯一的数字
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -100,7 +389,12 @@ CREATE TABLE 表名称
 | [DATEDIFF()](http://www.w3school.com.cn/sql/func_datediff_mysql.asp) | 返回两个日期之间的天数              |
 | [DATE_FORMAT()](http://www.w3school.com.cn/sql/func_date_format.asp) | 用不同的格式显示日期/时间           |
 
+**MySQL** 使用下列数据类型在数据库中存储日期或日期/时间值：
 
+- DATE - 格式：YYYY-MM-DD
+- DATETIME - 格式：YYYY-MM-DD HH:MM:SS
+- TIMESTAMP - 格式：YYYY-MM-DD HH:MM:SS
+- YEAR - 格式：YYYY 或 YY
 
 
 
@@ -176,6 +470,10 @@ CREATE TABLE 表名称
 | xml              | 存储 XML 格式化数据。最多 2GB。                              |
 | cursor           | 存储对用于数据库操作的指针的引用。                           |
 | table            | 存储结果集，供稍后处理。                                     |
+
+
+
+
 
 
 
