@@ -759,7 +759,7 @@ public class SmsAuthenticationFilter extends AbstractAuthenticationProcessingFil
     }    
     
     
-    //
+    //暂不明确
     protected void setDetails(HttpServletRequest request,
                               SmsAuthenticationToken authRequest) {
         
@@ -808,7 +808,8 @@ public class SmsAuthenticationProvider implements AuthenticationProvider {
         //此方法是短信验证码正确之后的操作
         UserDetails userDetails = userDetailService.loadUserByUsername(
             //从token中获取号码
-            (String) authenticationToken.getPrincipal());  
+            (String) authenticationToken.getPrincipal()
+        );  
         
         
         if (userDetails == null)           
@@ -867,11 +868,14 @@ class SmsCodeFilter extends OncePerRequestFilter {
                     e);                
                 return;            
             }        
-        }        
+        }   
+        
         //下一步认证
         filterChain.doFilter(httpServletRequest, httpServletResponse);    
     }    
     
+    
+    //校验验证码
     private void validateSmsCode(ServletWebRequest servletWebRequest) throws ServletRequestBindingException {        
         
         String smsCodeInRequest = 
@@ -926,8 +930,13 @@ public class SmsAuthenticationConfig extends SecurityConfigurerAdapter<DefaultSe
 
         //配置Filter
         SmsAuthenticationFilter smsAuthenticationFilter = new SmsAuthenticationFilter();
+        //设置Manager
         smsAuthenticationFilter.setAuthenticationManager(
-    http.getSharedObject(AuthenticationManager.class));      smsAuthenticationFilter.setAuthenticationSuccessHandler(authenticationSuccessHandler);      smsAuthenticationFilter.setAuthenticationFailureHandler(authenticationFailureHandler);
+    		http.getSharedObject(AuthenticationManager.class)
+        ); 
+ 
+ //配置成功失败
+   smsAuthenticationFilter.setAuthenticationSuccessHandler(authenticationSuccessHandler);    smsAuthenticationFilter.setAuthenticationFailureHandler(authenticationFailureHandler);
 
         
         //设置Provider  将自己的userDetailService 注入
@@ -936,9 +945,13 @@ public class SmsAuthenticationConfig extends SecurityConfigurerAdapter<DefaultSe
 
         
         //指定provider为smsAuthenticationProvider
-        http.authenticationProvider(smsAuthenticationProvider)
+        http
+            .authenticationProvider(smsAuthenticationProvider)
        //将SmsAuthenticationFilter过滤器添加至UsernamePasswordAuthenticationFilter后面
-                .addFilterAfter(smsAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+            .addFilterAfter(
+            smsAuthenticationFilter, 
+            UsernamePasswordAuthenticationFilter.class
+        );
     }
 }
 ```
@@ -958,3 +971,240 @@ public class SmsAuthenticationConfig extends SecurityConfigurerAdapter<DefaultSe
   ```
 
   
+
+## 6、Session管理
+
+- 设置session过期时间
+
+  ```yml
+  server:  
+  	session:    
+  		timeout: 3600
+  ```
+
+- session过期跳转页面`BrowserSecurityConfig`
+
+  ```java
+  .antMatchers("/session/invalid").permitAll() // 无需认证的请求路径
+      
+  .sessionManagement() // 添加 Session管理器      
+  .invalidSessionUrl("/session/invalid") // Session失效后跳转到这个链接
+  ```
+
+- 接口
+
+  ```java
+  @GetMapping("session/invalid")
+  @ResponseStatus(HttpStatus.UNAUTHORIZED)
+  public String sessionInvalid(){    
+      return "session已失效，请重新认证";
+  }
+  ```
+
+
+
+### 6.1、  并发控制
+
+Session并发控制可以控制一个账号同一时刻最多能登录多少个
+
+```java
+@Autowired
+private MySessionExpiredStrategy sessionExpiredStrategy;
+
+	.and()
+    .sessionManagement() // 添加 Session管理器
+    .invalidSessionUrl("/session/invalid") // Session失效后跳转到这个链接
+    .maximumSessions(1)
+    .expiredSessionStrategy(sessionExpiredStrategy)
+```
+
+`expiredSessionStrategy`配置了Session在并发下失效后的处理策略，
+
+这里为我们自定义的策略`MySessionExpiredStrategy`。
+
+
+
+- 踢出前登陆用户---自定义策略：`MySessionExpiredStrategy` 
+
+  ```java
+  @Component
+  public class MySessionExpiredStrategy implements SessionInformationExpiredStrategy {    
+      @Override    
+      public void onExpiredSessionDetected(SessionInformationExpiredEvent event) throws IOException, ServletException {
+          
+          HttpServletResponse response = event.getResponse();        
+          response.setStatus(HttpStatus.UNAUTHORIZED.value());        
+          response.setContentType("application/json;charset=utf-8");        
+          response.getWriter().write("您的账号已经在别的地方登录，当前登录已失效。如果密码遭到泄露，请立即修改密码！");    
+          
+      }
+  }
+  ```
+
+
+
+- 用户登陆后限制其他用户登陆----`BrowserSecurityConfig`
+
+  ```java
+  .maxSessionsPreventsLogin(true)
+  ```
+
+
+
+- 支持
+
+  ​		Session并发控制只对Spring Security默认的登录方式——账号密码登录有效，而像短信验证码登录，社交账号登录并不生效，解决方案可以参考我的开源项目https://github.com/wuyouzhuguli/FEBS-Security
+
+
+
+### 6.2、  Session集群处理
+
+存放session至第三方容器（如Redis集群），集群就可以通过第三方容器来共享Session。
+
+- Redis和Spring Session依赖：
+
+  ```xml
+  <dependency>    
+      <groupId>org.springframework.session</groupId>    
+      <artifactId>spring-session</artifactId>
+  </dependency>
+  
+  <dependency>    
+      <groupId>org.springframework.boot</groupId>    
+      <artifactId>spring-boot-starter-data-redis</artifactId>
+  </dependency>
+  ```
+
+- 配置Session存储方式为Redis：
+
+  ```yml
+  spring:
+    session:
+      store-type: redis
+  ```
+
+
+
+
+
+## 7、退出登录
+
+Spring Security默认的退出登录URL为`/logout`，退出登录后，Spring Security会做如下处理：
+
+1. 使当前的Sesion失效；
+2. 清除与当前用户关联的RememberMe记录；
+3. 清空当前的SecurityContext；
+4. 重定向到登录页。
+
+
+
+### 7.1、  自定义退出登录行为
+
+- 配置
+
+  ```java
+  .and()    
+      .logout()    
+      .logoutUrl("/signout")    
+      .logoutSuccessUrl("/signout/success")    
+      .deleteCookies("JSESSIONID")
+  ```
+
+退出登录的URL为`/signout`，
+
+退出成功后跳转的URL为`/signout/success`
+
+退出成功后删除名称为`JSESSIONID`的cookie。
+
+
+
+- Controller
+
+  ```java
+  @GetMapping("/signout/success")
+  public String signout() {    
+      return "退出成功，请重新登录";
+  }
+  ```
+
+
+
+- 或者自己实现退出成功逻辑
+
+  - `logoutSuccessHandler`
+
+    ```java
+    @Autowired
+    private MyLogOutSuccessHandler logOutSuccessHandler;
+    
+    .and()    
+        .logout()    
+        .logoutUrl("/signout")    
+        //.logoutSuccessUrl("/signout/success")    
+        //注入自定义逻辑
+        .logoutSuccessHandler(logOutSuccessHandler)    
+        .deleteCookies("JSESSIONID").and()
+    ```
+
+  - `MyLogOutSuccessHandler` 
+
+    ```java
+    @Component
+    public class MyLogOutSuccessHandler implements LogoutSuccessHandler {    
+        @Override    
+        public void onLogoutSuccess(HttpServletRequest httpServletRequest, HttpServletResponse httpServletResponse, Authentication authentication) throws IOException, ServletException { 
+            
+            httpServletResponse.setStatus(HttpStatus.UNAUTHORIZED.value());        
+            httpServletResponse.setContentType("application/json;charset=utf-8");     
+            httpServletResponse.getWriter().write("退出成功，请重新登录");
+            
+        }
+    }
+    ```
+
+
+
+## 8、权限控制
+
+- admin权限才能访问
+
+  ```java
+  @GetMapping("/auth/admin")
+  @PreAuthorize("hasAuthority('admin')")
+  public String authenticationTest() {    
+      return "您拥有admin权限，可以查看";
+  }
+  ```
+
+
+
+- 自定义无权限访问
+
+  - 自定义处理类
+
+  ```java
+  @Component
+  public class MyAuthenticationAccessDeniedHandler implements AccessDeniedHandler {    
+      @Override    
+      public void handle(HttpServletRequest request, HttpServletResponse response, AccessDeniedException accessDeniedException) throws IOException {        
+          response.setStatus(HttpStatus.INTERNAL_SERVER_ERROR.value());        
+          response.setContentType("application/json;charset=utf-8");        
+          response.getWriter().write("很抱歉，您没有该访问权限");    
+      }
+  }
+  ```
+  - 配置
+
+  ```java
+  @Autowired
+  private MyAuthenticationAccessDeniedHandler authenticationAccessDeniedHandler;
+  
+   @Override
+  protected void configure(HttpSecurity http) throws Exception {
+      http.exceptionHandling()
+              .accessDeniedHandler(authenticationAccessDeniedHandler)
+          .and()
+      ......
+  }
+  ```
+
