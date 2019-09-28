@@ -58,7 +58,7 @@ Spring Security
               user.isAccountNonExpired(), 
               user.isCredentialsNonExpired(),               		                                   user.isAccountNonLocked(),             
               AuthorityUtils.
-              commaSeparatedStringToAuthorityList("admin")//admin角色
+              commaSeparatedStringToAuthorityList("admin")//admin 权限
           );    
       }
   }
